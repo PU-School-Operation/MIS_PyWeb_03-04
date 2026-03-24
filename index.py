@@ -12,6 +12,7 @@ def index():
     homepage += "<a href=/welcome?nick=David&school=靜宜大學資管系>傳送使用者暱稱</a><br>"
     homepage += "<a href=/account>網頁表單傳值</a><br>"
     homepage += "<a href=/about>岱威簡介網頁</a><br>"
+    homepage += "<a href=/math>簡易計算機</a><br>"
     return homepage
 
 
