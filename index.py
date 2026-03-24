@@ -48,6 +48,25 @@ def account():
     else:
         return render_template("account.html")
 
+@app.route("/math", methods=["GET", "POST"])
+def math():
+    if request.method == "POST":
+        x = float(request.form["x"])
+        y = float(request.form["y"])
+        op = request.form["op"]
+        if op == "+":
+            result = x + y
+        elif op == "-":
+            result = x - y
+        elif op == "*":
+            result = x * y
+        elif op == "/":
+            result = x / y
+        else:
+            result = "不支援的運算子"
+        return f"{x} {op} {y} = {result}"
+    else:
+        return render_template("math.html")
 
 if __name__ == "__main__":
     app.run()
