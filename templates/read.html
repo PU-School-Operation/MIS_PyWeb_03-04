@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Firestore 資料</title>
+    <style>
+      body {
+        font-family: "標楷體", sans-serif;
+        line-height: 1.6;
+        max-width: 900px;
+        margin: 32px auto;
+        padding: 0 16px;
+        background: #fcfbf7;
+      }
+
+      form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 20px 0 24px;
+      }
+
+      input[type="text"] {
+        flex: 1 1 280px;
+        padding: 10px 12px;
+        border: 1px solid #b9b2a6;
+        border-radius: 8px;
+        font-size: 16px;
+      }
+
+      button {
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #36563d;
+        color: #fff;
+        cursor: pointer;
+      }
+
+      .error {
+        color: #b00020;
+      }
+
+      .item {
+        margin-bottom: 12px;
+        padding: 14px 16px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+      }
+
+      .meta {
+        color: #555;
+        font-size: 0.95rem;
+      }
+
+      .empty {
+        color: #666;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>老師資料查詢</h1>
+
+    <form action="/read" method="get">
+      <input
+        type="text"
+        name="q"
+        value="{{ keyword or '' }}"
+        placeholder="輸入老師名字關鍵字，例如：楊、陳、王"
+      />
+      <button type="submit">查詢</button>
+    </form>
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %} {% if docs %} {% for doc in docs %}
+    <div class="item">
+      <div><strong>老師姓名：</strong>{{ doc.name }}</div>
+      <div><strong>研究室：</strong>{{ doc.lab }}</div>
+      {% if doc.mail %}
+      <div class="meta"><strong>信箱：</strong>{{ doc.mail }}</div>
+      {% endif %}
+    </div>
+    {% endfor %} {% elif not error %}
+    <p class="empty">目前沒有符合的老師資料。</p>
+    {% endif %}
+  </body>
+</html>
