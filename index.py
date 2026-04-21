@@ -5,6 +5,8 @@ import json
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+from bug.spider import fetch_upcoming_movies
+
 
 def get_firestore_client():
     """建立 Firestore client；若未設定憑證則回傳 None。"""
@@ -48,6 +50,7 @@ def index():
     homepage += "<a href=/about>岱威簡介網頁</a><br>"
     homepage += "<a href=/math>簡易計算機</a><br>"
     homepage += "<br><a href=/read>查詢老師資料</a><br>"
+    homepage += "<a href=/next>查詢即將上映電影</a><br>"
     return homepage
 
 
@@ -157,6 +160,17 @@ def read():
             docs=[],
             keyword=keyword,
             error=f"讀取 Firestore 時發生錯誤：{exc}",
+        )
+
+
+@app.route("/next")
+def next_movies():
+    try:
+        movies = fetch_upcoming_movies()
+        return render_template("next.html", movies=movies, error=None)
+    except Exception as exc:
+        return render_template(
+            "next.html", movies=[], error=f"抓取即將上映電影失敗：{exc}"
         )
 
 

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>查詢即將上映電影</title>
+    <style>
+      body {
+        font-family: "標楷體", sans-serif;
+        line-height: 1.7;
+        max-width: 960px;
+        margin: 32px auto;
+        padding: 0 16px 40px;
+        background: linear-gradient(180deg, #f8f4ee 0%, #ffffff 45%);
+      }
+
+      h1 {
+        margin-bottom: 8px;
+        color: #243b53;
+      }
+
+      .desc {
+        color: #5b6770;
+        margin-bottom: 20px;
+      }
+
+      .error {
+        color: #b00020;
+        margin: 12px 0 20px;
+      }
+
+      .movie-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 14px;
+      }
+
+      .movie-item {
+        background: #fff;
+        border: 1px solid #ded7cc;
+        border-radius: 12px;
+        padding: 16px 18px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+      }
+
+      .movie-title {
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+
+      .movie-link {
+        color: #0f5b8d;
+        word-break: break-all;
+      }
+
+      .empty {
+        color: #666;
+        margin-top: 20px;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: 20px;
+        color: #36563d;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <a class="back-link" href="/">← 回首頁</a>
+    <h1>即將上映電影</h1>
+    <p class="desc">
+      以下資料擷取自開眼電影網即將上映頁面，內容包含電影名稱與超鏈結。
+    </p>
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %} {% if movies %}
+    <ul class="movie-list">
+      {% for movie in movies %}
+      <li class="movie-item">
+        <div class="movie-title">{{ movie.title }}</div>
+        <a
+          class="movie-link"
+          href="{{ movie.url }}"
+          target="_blank"
+          rel="noopener noreferrer"
+          >{{ movie.url }}</a
+        >
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif not error %}
+    <p class="empty">目前沒有抓到即將上映電影資料。</p>
+    {% endif %}
+  </body>
+</html>
