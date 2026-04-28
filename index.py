@@ -8,6 +8,14 @@ from firebase_admin import credentials, firestore
 from bug.spider import fetch_upcoming_movies
 
 
+MOVIE_COLLECTION = "即將上映電影"
+
+
+def build_movie_doc_id(movie_url: str) -> str:
+    parts = movie_url.rstrip("/").split("/")
+    return parts[-1] if parts else movie_url
+
+
 def get_firestore_client():
     """建立 Firestore client；若未設定憑證則回傳 None。"""
     cred = None
@@ -51,6 +59,8 @@ def index():
     homepage += "<a href=/math>簡易計算機</a><br>"
     homepage += "<br><a href=/read>查詢老師資料</a><br>"
     homepage += "<a href=/next>查詢即將上映電影</a><br>"
+    homepage += "<br><a href=/movie2>movie2：存入即將上映電影資料庫</a><br>"
+    homepage += "<a href=/movie3>movie3：查詢電影資料</a><br>"
     return homepage
 
 
@@ -171,6 +181,103 @@ def next_movies():
     except Exception as exc:
         return render_template(
             "next.html", movies=[], error=f"抓取即將上映電影失敗：{exc}"
+        )
+
+
+@app.route("/movie2")
+def movie2():
+    if db is None:
+        return render_template(
+            "movie2.html",
+            movies=[],
+            updated_at=None,
+            count=0,
+            error="尚未設定 Firestore 連線，無法存入即將上映電影資料。",
+        )
+
+    try:
+        movies = fetch_upcoming_movies()
+        updated_at = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
+        collection_ref = db.collection(MOVIE_COLLECTION)
+        existing_docs = {doc.id for doc in collection_ref.stream()}
+        current_ids = set()
+
+        batch = db.batch()
+        for movie in movies:
+            doc_id = build_movie_doc_id(movie["url"])
+            current_ids.add(doc_id)
+            doc_ref = collection_ref.document(doc_id)
+            batch.set(
+                doc_ref,
+                {
+                    "title": movie.get("title", ""),
+                    "url": movie.get("url", ""),
+                    "showDate": movie.get("showDate", ""),
+                    "showLength": movie.get("showLength", ""),
+                    "updatedAt": updated_at,
+                },
+            )
+
+        for stale_id in existing_docs - current_ids:
+            batch.delete(collection_ref.document(stale_id))
+
+        batch.commit()
+
+        return render_template(
+            "movie2.html",
+            movies=movies,
+            updated_at=updated_at,
+            count=len(movies),
+            error=None,
+        )
+    except Exception as exc:
+        return render_template(
+            "movie2.html",
+            movies=[],
+            updated_at=None,
+            count=0,
+            error=f"存入即將上映電影資料失敗：{exc}",
+        )
+
+
+@app.route("/movie3")
+def movie3():
+    keyword = request.values.get("q", "").strip()
+
+    if db is None:
+        return render_template(
+            "movie3.html",
+            movies=[],
+            keyword=keyword,
+            error="尚未設定 Firestore 連線，無法查詢電影資料。",
+        )
+
+    try:
+        collection_ref = db.collection(MOVIE_COLLECTION)
+        docs = [doc.to_dict() | {"id": doc.id} for doc in collection_ref.stream()]
+
+        if keyword:
+            movies = [
+                movie
+                for movie in docs
+                if keyword.lower() in str(movie.get("title", "")).lower()
+                or keyword.lower() in str(movie.get("showDate", "")).lower()
+            ]
+        else:
+            movies = docs
+
+        return render_template(
+            "movie3.html",
+            movies=movies,
+            keyword=keyword,
+            error=None,
+        )
+    except Exception as exc:
+        return render_template(
+            "movie3.html",
+            movies=[],
+            keyword=keyword,
+            error=f"查詢電影資料失敗：{exc}",
         )
 
 

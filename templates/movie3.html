@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>movie3 - 查詢電影資料</title>
+    <style>
+      body {
+        font-family: "標楷體", sans-serif;
+        line-height: 1.7;
+        max-width: 980px;
+        margin: 32px auto;
+        padding: 0 16px 40px;
+        background: linear-gradient(180deg, #fff8f1 0%, #ffffff 45%);
+      }
+
+      h1 {
+        margin-bottom: 8px;
+        color: #243b53;
+      }
+
+      .meta {
+        color: #4f5b66;
+        margin-bottom: 18px;
+      }
+
+      form {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin: 18px 0 24px;
+      }
+
+      input[type="text"] {
+        flex: 1 1 280px;
+        padding: 10px 12px;
+        border: 1px solid #b9b2a6;
+        border-radius: 8px;
+        font-size: 16px;
+      }
+
+      button {
+        padding: 10px 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #36563d;
+        color: #fff;
+        cursor: pointer;
+      }
+
+      .error {
+        color: #b00020;
+        margin: 12px 0 20px;
+      }
+
+      .movie-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 14px;
+      }
+
+      .movie-item {
+        background: #fff;
+        border: 1px solid #ded7cc;
+        border-radius: 12px;
+        padding: 16px 18px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+      }
+
+      .movie-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+
+      .movie-link {
+        word-break: break-all;
+        color: #0f5b8d;
+      }
+
+      .empty {
+        color: #666;
+        margin-top: 20px;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: 20px;
+        color: #36563d;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <a class="back-link" href="/">← 回首頁</a>
+    <h1>movie3：查詢電影資料</h1>
+    <p class="meta">
+      可輸入電影名稱關鍵字，從 Firestore 裡查詢已存入的即將上映電影資料。
+    </p>
+
+    <form action="/movie3" method="get">
+      <input
+        type="text"
+        name="q"
+        value="{{ keyword or '' }}"
+        placeholder="輸入關鍵字，例如：蜘蛛人、2026/07"
+      />
+      <button type="submit">查詢</button>
+    </form>
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %} {% if movies %}
+    <ul class="movie-list">
+      {% for movie in movies %}
+      <li class="movie-item">
+        <div class="movie-title">{{ movie.title }}</div>
+        <div>上映日期：{{ movie.showDate or '未提供' }}</div>
+        {% if movie.showLength %}
+        <div>片長：{{ movie.showLength }} 分鐘</div>
+        {% endif %}
+        <div>
+          <a
+            class="movie-link"
+            href="{{ movie.url }}"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ movie.url }}</a
+          >
+        </div>
+        <div style="color: #666; font-size: 0.95rem">
+          更新時間：{{ movie.updatedAt or '未提供' }}
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% elif not error %}
+    <p class="empty">目前沒有符合的電影資料。</p>
+    {% endif %}
+  </body>
+</html>

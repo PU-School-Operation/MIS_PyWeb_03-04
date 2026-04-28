@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-TW">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>movie2 - 存入即將上映電影資料庫</title>
+    <style>
+      body {
+        font-family: "標楷體", sans-serif;
+        line-height: 1.7;
+        max-width: 960px;
+        margin: 32px auto;
+        padding: 0 16px 40px;
+        background: linear-gradient(180deg, #f7fbf8 0%, #ffffff 45%);
+      }
+
+      h1 {
+        margin-bottom: 8px;
+        color: #243b53;
+      }
+
+      .meta {
+        color: #4f5b66;
+        margin-bottom: 18px;
+      }
+
+      .error {
+        color: #b00020;
+        margin: 12px 0 20px;
+      }
+
+      .summary {
+        background: #fff;
+        border: 1px solid #dce6d7;
+        border-radius: 12px;
+        padding: 16px 18px;
+        margin-bottom: 18px;
+      }
+
+      .movie-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 14px;
+      }
+
+      .movie-item {
+        background: #fff;
+        border: 1px solid #ded7cc;
+        border-radius: 12px;
+        padding: 16px 18px;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+      }
+
+      .movie-title {
+        font-size: 1.1rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+
+      .movie-link {
+        word-break: break-all;
+        color: #0f5b8d;
+      }
+
+      .back-link {
+        display: inline-block;
+        margin-bottom: 20px;
+        color: #36563d;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+
+  <body>
+    <a class="back-link" href="/">← 回首頁</a>
+    <h1>movie2：存入即將上映電影資料庫</h1>
+    <p class="meta">
+      將開眼電影網即將上映清單同步寫入 Firestore，並顯示更新日期。
+    </p>
+
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% else %}
+    <div class="summary">
+      <div><strong>更新日期：</strong>{{ updated_at }}</div>
+      <div><strong>已存入筆數：</strong>{{ count }}</div>
+    </div>
+    {% endif %} {% if movies %}
+    <ul class="movie-list">
+      {% for movie in movies %}
+      <li class="movie-item">
+        <div class="movie-title">{{ movie.title }}</div>
+        <div>上映日期：{{ movie.showDate or '未提供' }}</div>
+        {% if movie.showLength %}
+        <div>片長：{{ movie.showLength }} 分鐘</div>
+        {% endif %}
+        <div>
+          <a
+            class="movie-link"
+            href="{{ movie.url }}"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ movie.url }}</a
+          >
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </body>
+</html>
