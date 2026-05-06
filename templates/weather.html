@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天氣查詢</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        
+        .form-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        input[type="text"] {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        .result {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-top: 20px;
+        }
+        
+        .result h2 {
+            color: #2196F3;
+            margin-top: 0;
+        }
+        
+        .weather-info {
+            font-size: 18px;
+            line-height: 1.8;
+        }
+        
+        .weather-info p {
+            margin: 10px 0;
+        }
+        
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border-left: 4px solid #c62828;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 15px;
+            background-color: #f0f0f0;
+            text-decoration: none;
+            color: #333;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .back-link:hover {
+            background-color: #e0e0e0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>天氣查詢</h1>
+    
+    <div class="form-container">
+        <form method="POST" action="/weather">
+            <div class="form-group">
+                <input 
+                    type="text" 
+                    name="city" 
+                    placeholder="請輸入縣市名稱（例：台中市、台北市）"
+                    value="{{ city }}"
+                    required
+                >
+                <button type="submit">查詢</button>
+            </div>
+        </form>
+    </div>
+    
+    {% if error %}
+    <div class="error">
+        <strong>錯誤：</strong>{{ error }}
+    </div>
+    {% endif %}
+    
+    {% if result and not result.error %}
+    <div class="result">
+        <h2>{{ result.city }} 天氣資訊</h2>
+        <div class="weather-info">
+            <p><strong>目前天氣：</strong>{{ result.weather }}</p>
+            <p><strong>降雨機率：</strong>{{ result.rain }}%</p>
+        </div>
+    </div>
+    {% endif %}
+    
+    <a href="/" class="back-link">返回首頁</a>
+</body>
+
+</html>

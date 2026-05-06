@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台中市十大肇事路口</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        
+        .content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th {
+            background-color: #2196F3;
+            color: white;
+            padding: 15px;
+            text-align: left;
+            border: 1px solid #ddd;
+        }
+        
+        td {
+            padding: 12px 15px;
+            border: 1px solid #ddd;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tr:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .rank {
+            font-weight: bold;
+            color: #2196F3;
+            text-align: center;
+        }
+        
+        .error {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 4px;
+            border-left: 4px solid #c62828;
+        }
+        
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 15px;
+            background-color: #f0f0f0;
+            text-decoration: none;
+            color: #333;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .back-link:hover {
+            background-color: #e0e0e0;
+        }
+        
+        .info-text {
+            color: #666;
+            font-size: 14px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>台中市十大肇事路口</h1>
+    
+    <div class="content">
+        {% if error %}
+        <div class="error">
+            <strong>錯誤：</strong>{{ error }}
+        </div>
+        {% elif roads %}
+        <p class="info-text">根據統計資料，以下為台中市肇事件數最多的十大路口：</p>
+        
+        <table>
+            <thead>
+                <tr>
+                    <th style="width: 60px;">排名</th>
+                    <th>路口名稱</th>
+                    <th style="width: 100px;">肇事件數</th>
+                    <th>主要肇因</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for road in roads %}
+                <tr>
+                    <td class="rank">{{ loop.index }}</td>
+                    <td>{{ road.路口名稱 }}</td>
+                    <td style="text-align: center;">{{ road.總件數 }}</td>
+                    <td>{{ road.主要肇因 }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        {% else %}
+        <p class="info-text">暫無資料</p>
+        {% endif %}
+    </div>
+    
+    <a href="/" class="back-link">返回首頁</a>
+</body>
+
+</html>

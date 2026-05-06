@@ -6,6 +6,8 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 from bug.spider import fetch_upcoming_movies
+from bug.weather import get_weather
+from bug.opendata import get_taichung_accident_roads
 
 
 MOVIE_COLLECTION = "即將上映電影"
@@ -61,6 +63,8 @@ def index():
     homepage += "<a href=/next>查詢即將上映電影</a><br>"
     homepage += "<br><a href=/movie2>movie2：存入即將上映電影資料庫</a><br>"
     homepage += "<a href=/movie3>movie3：查詢電影資料</a><br>"
+    homepage += "<br><a href=/weather>天氣查詢</a><br>"
+    homepage += "<a href=/road>台中市十大肇事路口</a><br>"
     return homepage
 
 
@@ -279,6 +283,36 @@ def movie3():
             keyword=keyword,
             error=f"查詢電影資料失敗：{exc}",
         )
+
+
+@app.route("/weather", methods=["GET", "POST"])
+def weather():
+    result = None
+    city = ""
+    error = None
+    
+    if request.method == "POST":
+        city = request.form.get("city", "").strip()
+        if not city:
+            error = "請輸入縣市名稱"
+        else:
+            result = get_weather(city)
+            if "error" in result and result["error"]:
+                error = result["error"]
+    
+    return render_template("weather.html", result=result, city=city, error=error)
+
+
+@app.route("/road")
+def road():
+    roads = get_taichung_accident_roads(10)
+    error = None
+    
+    if isinstance(roads, dict) and "error" in roads:
+        error = roads["error"]
+        roads = []
+    
+    return render_template("road.html", roads=roads, error=error)
 
 
 if __name__ == "__main__":

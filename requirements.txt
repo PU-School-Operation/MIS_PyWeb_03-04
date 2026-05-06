@@ -2,3 +2,4 @@ flask
 firebase-admin
 google-cloud-firestore
 bs4
+requests
