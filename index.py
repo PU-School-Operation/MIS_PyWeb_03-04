@@ -171,7 +171,7 @@ def webhook3():
         parameters = query_result.get("parameters", {})
         rate = parameters.get("rate", "")
         info = (
-            "我是楊子青開發的電影聊天機器人,您選擇的電影分級是："
+            "我是吳岱威開發的電影聊天機器人,您選擇的電影分級是："
             + rate
             + "，相關電影：\n"
         )
@@ -179,13 +179,34 @@ def webhook3():
         if db is not None:
             collection_ref = db.collection("電影含分級")
             docs = collection_ref.get()
-            result = ""
+            matched_movies = []
+            fallback_movies = []
             for doc in docs:
                 movie_data = doc.to_dict()
-                if rate and rate in movie_data.get("rate", ""):
-                    result += "片名：" + movie_data.get("title", "") + "\n"
-                    result += "介紹：" + movie_data.get("hyperlink", "") + "\n\n"
-            info += result
+                title = movie_data.get("title", "")
+                show_date = movie_data.get("showDate", "")
+                movie_rate = movie_data.get("rate", "")
+
+                if title:
+                    fallback_movies.append((title, show_date, movie_rate))
+
+                if rate and movie_rate and rate in movie_rate:
+                    matched_movies.append((title, show_date, movie_rate))
+
+            target_movies = matched_movies if matched_movies else fallback_movies
+
+            if matched_movies:
+                info += "以下為符合分級的電影：\n"
+            else:
+                info += "目前分級欄位尚未完整，先列出已抓到的電影名稱：\n"
+
+            for title, show_date, movie_rate in target_movies:
+                info += "片名：" + title
+                if show_date:
+                    info += "；上映日期：" + show_date
+                if movie_rate:
+                    info += "；分級：" + movie_rate
+                info += "\n"
         else:
             info += "尚未設定 Firestore 連線。"
 
