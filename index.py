@@ -14,14 +14,13 @@ from bug.opendata import get_taichung_accident_roads
 MOVIE_COLLECTION = "即將上映電影"
 
 
-
 def fetch_movies_with_rating():
     """
     爬取開眼電影(atmovies.com.tw)的今年上映電影及分級資訊
     回傳爬蟲的電影數量和最後更新時間
     """
     url = "https://www.atmovies.com.tw/movie/"
-    
+
     try:
         Data = requests.get(url, timeout=10)
         Data.encoding = "utf-8"
@@ -29,17 +28,17 @@ def fetch_movies_with_rating():
     except Exception as e:
         print(f"網路請求失敗：{e}")
         return 0, datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-    
+
     lastUpdate = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
     print(f"電影含分級爬蟲更新時間：{lastUpdate}")
 
     # 新網站結構使用 c-item-card
     result = sp.select(".c-item-card")
     print(f"找到 {len(result)} 部電影")
-    
+
     if len(result) == 0:
         return 0, lastUpdate
-    
+
     count = 0
     for x in result:
         try:
@@ -47,25 +46,25 @@ def fetch_movies_with_rating():
             link_elem = x.find("a")
             if not link_elem:
                 continue
-            
+
             href = link_elem.get("href", "")
             if not href:
                 continue
-            
+
             # 從 URL 提取電影ID：http://www.atmovies.com.tw/movie/fcko34385135/
             movie_id = href.strip("/").split("/")[-1]
             if not movie_id:
                 continue
-            
+
             # 取得標題和日期
             title_elem = x.find("div", class_="my-filmtitle")
             if not title_elem:
                 continue
-            
+
             # 標題在 div 的第一個文本子節點
             title_text = title_elem.get_text(strip=True)
             # 從標題中分離日期（格式如 "屍速禁區2026/5/22"）
-            
+
             date_elem = title_elem.find("p", class_="my-date")
             if date_elem:
                 showDate = date_elem.get_text(strip=True)
@@ -74,10 +73,10 @@ def fetch_movies_with_rating():
             else:
                 showDate = ""
                 title = title_text
-            
+
             if not title:
                 continue
-            
+
             # 取得圖片（背景圖）
             bg = link_elem.get("data-bg", "")
             if bg.startswith("/"):
@@ -86,16 +85,18 @@ def fetch_movies_with_rating():
                 picture = bg
             else:
                 picture = ""
-            
+
             # 新結構中沒有分級和片長信息在列表頁面
             # 如果需要取得這些信息，需要訪問詳細頁面
             # 暫時使用空值或預設值
             rate = "待更新"
             showLength = 0
             introduce = ""
-            
-            hyperlink = href if href.startswith("http") else "http://www.atmovies.com.tw" + href
-            
+
+            hyperlink = (
+                href if href.startswith("http") else "http://www.atmovies.com.tw" + href
+            )
+
             try:
                 doc = {
                     "title": title,
@@ -105,7 +106,7 @@ def fetch_movies_with_rating():
                     "showDate": showDate,
                     "showLength": showLength,
                     "rate": rate,
-                    "lastUpdate": lastUpdate
+                    "lastUpdate": lastUpdate,
                 }
 
                 db_client = firestore.client()
@@ -159,13 +160,35 @@ app = Flask(__name__)
 db = get_firestore_client()
 
 
-@app.route("/webhook", methods=["POST"])
-def webhook():
+@app.route("/webhook3", methods=["POST"])
+def webhook3():
     req = request.get_json(force=True)
     query_result = req.get("queryResult", {})
     action = query_result.get("action", "")
-    msg = query_result.get("queryText", "")
-    info = "動作：" + action + "； 查詢內容：" + msg
+    info = ""
+
+    if action == "rateChoice":
+        parameters = query_result.get("parameters", {})
+        rate = parameters.get("rate", "")
+        info = (
+            "我是楊子青開發的電影聊天機器人,您選擇的電影分級是："
+            + rate
+            + "，相關電影：\n"
+        )
+
+        if db is not None:
+            collection_ref = db.collection("電影含分級")
+            docs = collection_ref.get()
+            result = ""
+            for doc in docs:
+                movie_data = doc.to_dict()
+                if rate and rate in movie_data.get("rate", ""):
+                    result += "片名：" + movie_data.get("title", "") + "\n"
+                    result += "介紹：" + movie_data.get("hyperlink", "") + "\n\n"
+            info += result
+        else:
+            info += "尚未設定 Firestore 連線。"
+
     return make_response(jsonify({"fulfillmentText": info}))
 
 
