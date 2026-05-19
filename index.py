@@ -1,216 +1,61 @@
-from flask import Flask, jsonify, make_response, render_template, request
-from datetime import datetime
-import os
+import importlib.util
 import json
+import os
+import random
+from datetime import datetime
+from pathlib import Path
+
+import firebase_admin
 import requests
 from bs4 import BeautifulSoup
-import firebase_admin
+from flask import (
+    Flask,
+    jsonify,
+    make_response,
+    render_template,
+    render_template_string,
+    request,
+)
 from firebase_admin import credentials, firestore
 
+from bug.opendata import search_accident_by_road
 from bug.spider import fetch_upcoming_movies
 from bug.weather import get_weather
-from bug.opendata import get_taichung_accident_roads
 
-MOVIE_COLLECTION = "即將上映電影"
+# 判斷是在 Vercel 還是本地
+if os.path.exists("serviceAccountKey.json"):
+    # 本地環境：讀取檔案
+    cred = credentials.Certificate("serviceAccountKey.json")
+else:
+    # 雲端環境：從環境變數讀取 JSON 字串
+    firebase_config = os.getenv("FIREBASE_CONFIG")
+    cred = (
+        credentials.Certificate(json.loads(firebase_config))
+        if firebase_config
+        else None
+    )
 
-
-def fetch_movies_with_rating():
-    """
-    爬取開眼電影(atmovies.com.tw)的今年上映電影及分級資訊
-    回傳爬蟲的電影數量和最後更新時間
-    """
-    url = "https://www.atmovies.com.tw/movie/"
-
-    try:
-        Data = requests.get(url, timeout=10)
-        Data.encoding = "utf-8"
-        sp = BeautifulSoup(Data.text, "html.parser")
-    except Exception as e:
-        print(f"網路請求失敗：{e}")
-        return 0, datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-
-    lastUpdate = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-    print(f"電影含分級爬蟲更新時間：{lastUpdate}")
-
-    # 新網站結構使用 c-item-card
-    result = sp.select(".c-item-card")
-    print(f"找到 {len(result)} 部電影")
-
-    if len(result) == 0:
-        return 0, lastUpdate
-
-    count = 0
-    for x in result:
-        try:
-            # 取得連結和電影ID
-            link_elem = x.find("a")
-            if not link_elem:
-                continue
-
-            href = link_elem.get("href", "")
-            if not href:
-                continue
-
-            # 從 URL 提取電影ID：http://www.atmovies.com.tw/movie/fcko34385135/
-            movie_id = href.strip("/").split("/")[-1]
-            if not movie_id:
-                continue
-
-            # 取得標題和日期
-            title_elem = x.find("div", class_="my-filmtitle")
-            if not title_elem:
-                continue
-
-            # 標題在 div 的第一個文本子節點
-            title_text = title_elem.get_text(strip=True)
-            # 從標題中分離日期（格式如 "屍速禁區2026/5/22"）
-
-            date_elem = title_elem.find("p", class_="my-date")
-            if date_elem:
-                showDate = date_elem.get_text(strip=True)
-                # 移除日期部分，只保留標題
-                title = title_text.replace(showDate, "").strip()
-            else:
-                showDate = ""
-                title = title_text
-
-            if not title:
-                continue
-
-            # 取得圖片（背景圖）
-            bg = link_elem.get("data-bg", "")
-            if bg.startswith("/"):
-                picture = "https://www.atmovies.com.tw" + bg
-            elif bg.startswith("http"):
-                picture = bg
-            else:
-                picture = ""
-
-            # 新結構中沒有分級和片長信息在列表頁面
-            # 如果需要取得這些信息，需要訪問詳細頁面
-            # 暫時使用空值或預設值
-            rate = "待更新"
-            showLength = 0
-            introduce = ""
-
-            hyperlink = (
-                href if href.startswith("http") else "http://www.atmovies.com.tw" + href
-            )
-
-            try:
-                doc = {
-                    "title": title,
-                    "introduce": introduce,
-                    "picture": picture,
-                    "hyperlink": hyperlink,
-                    "showDate": showDate,
-                    "showLength": showLength,
-                    "rate": rate,
-                    "lastUpdate": lastUpdate,
-                }
-
-                db_client = firestore.client()
-                doc_ref = db_client.collection("電影含分級").document(movie_id)
-                doc_ref.set(doc)
-                count += 1
-                print(f"[成功] {title} ({showDate})")
-            except Exception as e:
-                print(f"[Firestore 錯誤] {title}：{e}")
-                continue
-        except Exception as e:
-            print(f"[處理電影錯誤]：{e}")
-            continue
-
-    print(f"[爬蟲完成] 共爬蟲 {count} 部電影")
-    return count, lastUpdate
-
-
-def build_movie_doc_id(movie_url: str) -> str:
-    parts = movie_url.rstrip("/").split("/")
-    return parts[-1] if parts else movie_url
-
-
-def get_firestore_client():
-    """建立 Firestore client；若未設定憑證則回傳 None。"""
-    cred = None
-
-    if os.path.exists("serviceAccountKey.json"):
-        cred = credentials.Certificate("serviceAccountKey.json")
-    else:
-        firebase_config = os.getenv("FIREBASE_CONFIG")
-        if not firebase_config:
-            return None
-
-        try:
-            cred_dict = json.loads(firebase_config)
-        except json.JSONDecodeError:
-            return None
-
-        cred = credentials.Certificate(cred_dict)
-
-    try:
-        firebase_admin.initialize_app(cred)
-    except ValueError:
-        pass
-
-    return firestore.client()
+if cred is not None and not firebase_admin._apps:
+    firebase_admin.initialize_app(cred)
 
 
 app = Flask(__name__)
-db = get_firestore_client()
 
 
-@app.route("/webhook3", methods=["POST"])
-def webhook3():
-    req = request.get_json(force=True)
-    query_result = req.get("queryResult", {})
-    action = query_result.get("action", "")
-    info = ""
+def _load_rate_helper():
+    module_path = Path(__file__).resolve().parent / "rate" / "08_rate.py"
+    spec = importlib.util.spec_from_file_location("rate_08_rate", module_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("無法載入 rate/08_rate.py")
 
-    if action == "rateChoice":
-        parameters = query_result.get("parameters", {})
-        rate = parameters.get("rate", "")
-        info = (
-            "我是吳岱威開發的電影聊天機器人,您選擇的電影分級是："
-            + rate
-            + "，相關電影：\n"
-        )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-        if db is not None:
-            collection_ref = db.collection("電影含分級")
-            docs = collection_ref.get()
-            matched_movies = []
-            fallback_movies = []
-            for doc in docs:
-                movie_data = doc.to_dict()
-                title = movie_data.get("title", "")
-                show_date = movie_data.get("showDate", "")
-                movie_rate = movie_data.get("rate", "")
 
-                if title:
-                    fallback_movies.append((title, show_date, movie_rate))
-
-                if rate and movie_rate and rate in movie_rate:
-                    matched_movies.append((title, show_date, movie_rate))
-
-            target_movies = matched_movies if matched_movies else fallback_movies
-
-            if matched_movies:
-                info += "以下為符合分級的電影：\n"
-            else:
-                info += "目前分級欄位尚未完整，先列出已抓到的電影名稱：\n"
-
-            for title, show_date, movie_rate in target_movies:
-                info += "片名：" + title
-                if show_date:
-                    info += "；上映日期：" + show_date
-                if movie_rate:
-                    info += "；分級：" + movie_rate
-                info += "\n"
-        else:
-            info += "尚未設定 Firestore 連線。"
-
-    return make_response(jsonify({"fulfillmentText": info}))
+def _get_firestore_collection(collection_name):
+    db = firestore.client()
+    return db.collection(collection_name)
 
 
 @app.route("/")
@@ -218,25 +63,41 @@ def index():
     homepage = "<h1>吳岱威Python網頁</h1>"
     homepage += "<a href=/mis>MIS</a><br>"
     homepage += "<a href=/today>顯示日期時間</a><br>"
-    homepage += (
-        "<a href=/welcome?nick=David&school=靜宜大學資管系>傳送使用者暱稱</a><br>"
-    )
+    homepage += "<a href=/welcome?name=吳岱威&school=資管系>傳送使用者暱稱</a><br>"
     homepage += "<a href=/account>網頁表單傳值</a><br>"
+    homepage += "<a href=/math>數學運算</a><br>"
     homepage += "<a href=/about>岱威簡介網頁</a><br>"
-    homepage += "<a href=/math>簡易計算機</a><br>"
-    homepage += "<br><a href=/read>查詢老師資料</a><br>"
-    homepage += "<a href=/next>查詢即將上映電影</a><br>"
-    homepage += "<br><a href=/movie2>movie2：存入即將上映電影資料庫</a><br>"
-    homepage += "<a href=/movie3>movie3：查詢電影資料</a><br>"
-    homepage += "<br><a href=/rate>rate：爬蟲電影含分級資訊</a><br>"
-    homepage += "<br><a href=/weather>天氣查詢</a><br>"
-    homepage += "<a href=/road>台中市十大肇事路口</a><br>"
+    homepage += "<br><a href=/read>老師資料查詢</a><br>"
+    homepage += "<br><a href=/next>讀取開眼電影即將上映影片</a><br>"
+    homepage += "<br><a href=/movie2>本週即將上映電影進DB</a><br>"
+    homepage += "<br><a href=/movie3>查詢即將上映電影</a><br>"
+    homepage += "<br><a href=/check_update>檢查開眼電影網頁最後更新時間</a><br>"
+    homepage += "<br><a href=/road>查詢易肇事路口</a><br>"
+    homepage += "<br><a href=/weather>查詢氣象預報</a><br>"
+    homepage += "<br><a href=/rate>本週新片進DB</a><br>"
+
+    # 【修正】：修正 HTML 標籤拼字錯誤與增加必要空格
+    homepage += '<script src="https://www.gstatic.com/dialogflow-console/fast/messenger/bootstrap.js?v=1"></script>'
+    homepage += '<df-messenger intent="WELCOME" chat-title="吳岱威的聊天機器人-MIS" '
+    homepage += 'agent-id="afa9a893-0765-40e2-a001-4e48982a5bc1" '
+    homepage += 'language-code="zh-tw"></df-messenger>'
+
     return homepage
 
 
 @app.route("/mis")
 def course():
-    return "<h1>資訊管理導論</h1>"
+    return "<h1>資訊管理導論</h1><a href=/>回到網站首頁</a>"
+
+
+@app.route("/today")
+def today():
+    now = datetime.now()
+    year = str(now.year)  # 取得年份
+    month = str(now.month)  # 取得月份
+    day = str(now.day)  # 取得日期
+    now = year + "年" + month + "月" + day + "日"
+    return render_template("today.html", datetime=now)
 
 
 @app.route("/about")
@@ -244,24 +105,18 @@ def about():
     return render_template("about.html")
 
 
-@app.route("/today")
-def today():
-    now = datetime.now()
-    return render_template("today.html", datetime=str(now))
-
-
 @app.route("/welcome", methods=["GET"])
 def welcome():
-    user = request.values.get("nick", "")
-    school = request.values.get("school", "")
-    return render_template("welcome.html", name=user, school=school)
+    x = request.values.get("name")
+    y = request.values.get("school")
+    return render_template("welcome.html", name=x, school=y)
 
 
 @app.route("/account", methods=["GET", "POST"])
 def account():
     if request.method == "POST":
-        user = request.form.get("user", "")
-        pwd = request.form.get("pwd", "")
+        user = request.form["user"]
+        pwd = request.form["pwd"]
         result = "您輸入的帳號是：" + user + "; 密碼為：" + pwd
         return result
     else:
@@ -271,76 +126,161 @@ def account():
 @app.route("/math", methods=["GET", "POST"])
 def math():
     if request.method == "POST":
-        try:
-            x = float(request.form.get("x", 0))
-            y = float(request.form.get("y", 0))
-        except ValueError:
-            return "請輸入有效數字"
+        x = int(request.form["x"])
+        opt = request.form["opt"]
+        y = int(request.form["y"])
+        result = "您輸入的是：" + str(x) + opt + str(y)
 
-        op = request.form.get("op", "")
-        try:
-            if op == "+":
-                result = x + y
-            elif op == "-":
-                result = x - y
-            elif op == "*":
-                result = x * y
-            elif op == "/":
-                result = x / y
-            else:
-                result = "不支援的運算子"
-        except ZeroDivisionError:
-            result = "除數不可為 0"
-
-        return f"{x} {op} {y} = {result}"
+        if opt == "/" and y == 0:
+            result += "，除數不能為0"
+        else:
+            match opt:
+                case "+":
+                    r = x + y
+                case "-":
+                    r = x - y
+                case "*":
+                    r = x * y
+                case "/":
+                    r = x / y  # 修正：之前誤寫為 x - y
+                case _:
+                    return "未知運算符號"
+            result += "=" + str(r) + "<br><a href=/>返回首頁</a>"
+        return result
     else:
         return render_template("math.html")
 
 
+@app.route("/cup", methods=["GET"])
+def cup():
+    action = request.values.get("action")
+    result = None
+
+    if action == "toss":
+        x1 = random.randint(0, 1)
+        x2 = random.randint(0, 1)
+
+        if x1 != x2:
+            msg = "聖筊：表示神明允許、同意，或行事會順利。"
+        elif x1 == 0:
+            msg = "笑筊：表示神明一笑、不解，或者考慮中，行事狀況不明。"
+        else:
+            msg = "陰筊：表示神明否定、憤怒，或者不宜行事。"
+
+        result = {
+            "cup1": "/static/" + str(x1) + ".jpg",
+            "cup2": "/static/" + str(x2) + ".jpg",
+            "message": msg,
+        }
+
+        if result is None:
+            return render_template_string("""
+                        <html lang="zh-TW">
+                            <head><meta charset="UTF-8"><title>擲筊</title></head>
+                            <body>
+                                <h1>擲筊</h1>
+                                <form method="get" action="/cup">
+                                    <input type="hidden" name="action" value="toss">
+                                    <button type="submit">開始擲筊</button>
+                                </form>
+                                <p><a href="/">回到首頁</a></p>
+                            </body>
+                        </html>
+                        """)
+
+        return render_template_string(
+            """
+                <html lang="zh-TW">
+                    <head><meta charset="UTF-8"><title>擲筊結果</title></head>
+                    <body>
+                        <h1>擲筊結果</h1>
+                        <p><img src="{{ result.cup1 }}" alt="cup1" width="120"></p>
+                        <p><img src="{{ result.cup2 }}" alt="cup2" width="120"></p>
+                        <p>{{ result.message }}</p>
+                        <p><a href="/cup">重新擲筊</a> | <a href="/">回到首頁</a></p>
+                    </body>
+                </html>
+                """,
+            result=result,
+        )
+
+
+@app.route("/math2", methods=["GET", "POST"])
+def math2():
+    result = None
+    if request.method == "POST":
+        # 取得使用者輸入
+        x = int(request.form.get("x"))
+        opt = request.form.get("opt")
+        y = int(request.form.get("y"))
+
+        # 你的核心邏輯
+        match opt:
+            case "∧":
+                result = x**y
+            case "√":
+                if y != 0:
+                    result = x ** (1 / y)
+                else:
+                    result = "數學上不存在「0 次方根」"
+            case _:
+                result = "請輸入∧(次方)或√(根號)"
+        return render_template_string(
+            """
+                <html lang="zh-TW">
+                    <head><meta charset="UTF-8"><title>math2</title></head>
+                    <body>
+                        <h1>math2</h1>
+                        <form method="post" action="/math2">
+                            x：<input type="text" name="x" value="0"><br><br>
+                            y：<input type="text" name="y" value="0"><br><br>
+                            運算子(∧, √)：<input type="text" name="opt" value="∧"><br><br>
+                            <button type="submit">送出</button>
+                        </form>
+                        {% if result is not none %}
+                        <p>結果：{{ result }}</p>
+                        {% endif %}
+                        <p><a href="/">回到首頁</a></p>
+                    </body>
+                </html>
+                """,
+            result=result,
+        )
+
+
 @app.route("/read")
 def read():
-    if db is None:
-        return render_template(
-            "read.html",
-            docs=[],
-            keyword="",
-            error="尚未設定 Firestore 連線，無法讀取資料。",
-        )
-
     keyword = request.values.get("q", "").strip()
+    docs = []
+    error = None
 
     try:
-        collection_ref = db.collection("靜宜資管")
-        all_docs = [doc.to_dict() for doc in collection_ref.get()]
+        collection_ref = _get_firestore_collection("靜宜資管")
+        for doc in collection_ref.get():
+            data = doc.to_dict() or {}
+            if keyword:
+                values = [
+                    str(data.get("name", "")),
+                    str(data.get("lab", "")),
+                    str(data.get("mail", "")),
+                ]
+                if not any(keyword in value for value in values):
+                    continue
+            docs.append(data)
+    except Exception as e:
+        error = f"讀取 Firestore 失敗：{e}"
 
-        if keyword:
-            docs = [
-                {
-                    "name": doc.get("name", ""),
-                    "lab": doc.get("lab", ""),
-                    "mail": doc.get("mail", ""),
-                }
-                for doc in all_docs
-                if keyword.lower() in str(doc.get("name", "")).lower()
-            ]
-        else:
-            docs = [
-                {
-                    "name": doc.get("name", ""),
-                    "lab": doc.get("lab", ""),
-                    "mail": doc.get("mail", ""),
-                }
-                for doc in all_docs
-            ]
+    return render_template("read.html", docs=docs, keyword=keyword, error=error)
 
-        return render_template("read.html", docs=docs, keyword=keyword, error=None)
-    except Exception as exc:
-        return render_template(
-            "read.html",
-            docs=[],
-            keyword=keyword,
-            error=f"讀取 Firestore 時發生錯誤：{exc}",
-        )
+
+@app.route("/search", methods=["GET", "POST"])
+def search():
+    return read()
+
+
+@app.route("/movie")
+def movie():
+    return next_movies()
 
 
 @app.route("/next")
@@ -348,163 +288,287 @@ def next_movies():
     try:
         movies = fetch_upcoming_movies()
         return render_template("next.html", movies=movies, error=None)
-    except Exception as exc:
-        return render_template(
-            "next.html", movies=[], error=f"抓取即將上映電影失敗：{exc}"
-        )
+    except Exception as e:
+        return render_template("next.html", movies=[], error=f"抓取失敗：{e}")
 
 
-@app.route("/movie2")
+@app.route("/movie2", methods=["GET"])
 def movie2():
-    if db is None:
-        return render_template(
-            "movie2.html",
-            movies=[],
-            updated_at=None,
-            count=0,
-            error="尚未設定 Firestore 連線，無法存入即將上映電影資料。",
-        )
-
     try:
         movies = fetch_upcoming_movies()
         updated_at = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-        collection_ref = db.collection(MOVIE_COLLECTION)
-        existing_docs = {doc.id for doc in collection_ref.stream()}
-        current_ids = set()
+        collection_ref = _get_firestore_collection("電影")
 
-        batch = db.batch()
         for movie in movies:
-            doc_id = build_movie_doc_id(movie["url"])
-            current_ids.add(doc_id)
-            doc_ref = collection_ref.document(doc_id)
-            batch.set(
-                doc_ref,
-                {
-                    "title": movie.get("title", ""),
-                    "url": movie.get("url", ""),
-                    "showDate": movie.get("showDate", ""),
-                    "showLength": movie.get("showLength", ""),
-                    "updatedAt": updated_at,
-                },
-            )
+            movie_id = movie.get("url", "").rstrip("/").split("/")[-1]
+            if not movie_id:
+                movie_id = movie.get("title", "movie")
 
-        for stale_id in existing_docs - current_ids:
-            batch.delete(collection_ref.document(stale_id))
-
-        batch.commit()
+            doc = {
+                "title": movie.get("title", ""),
+                "url": movie.get("url", ""),
+                "hyperlink": movie.get("url", ""),
+                "showDate": movie.get("showDate", ""),
+                "showLength": movie.get("showLength", ""),
+                "updatedAt": updated_at,
+            }
+            collection_ref.document(movie_id).set(doc)
 
         return render_template(
             "movie2.html",
             movies=movies,
-            updated_at=updated_at,
             count=len(movies),
+            updated_at=updated_at,
             error=None,
         )
-    except Exception as exc:
+    except Exception as e:
         return render_template(
             "movie2.html",
             movies=[],
-            updated_at=None,
             count=0,
-            error=f"存入即將上映電影資料失敗：{exc}",
+            updated_at="",
+            error=f"存入 Firestore 失敗：{e}",
         )
 
 
-@app.route("/movie3")
+@app.route("/movie3", methods=["GET", "POST"])
 def movie3():
     keyword = request.values.get("q", "").strip()
-
-    if db is None:
-        return render_template(
-            "movie3.html",
-            movies=[],
-            keyword=keyword,
-            error="尚未設定 Firestore 連線，無法查詢電影資料。",
-        )
+    movies = []
+    error = None
 
     try:
-        collection_ref = db.collection(MOVIE_COLLECTION)
-        docs = [doc.to_dict() | {"id": doc.id} for doc in collection_ref.stream()]
+        collection_ref = _get_firestore_collection("電影")
+        for doc in collection_ref.get():
+            movie = doc.to_dict() or {}
+            if keyword and keyword not in movie.get("title", ""):
+                continue
+            movies.append(movie)
+    except Exception as e:
+        error = f"查詢 Firestore 失敗：{e}"
 
-        if keyword:
-            movies = [
-                movie
-                for movie in docs
-                if keyword.lower() in str(movie.get("title", "")).lower()
-                or keyword.lower() in str(movie.get("showDate", "")).lower()
-            ]
+    return render_template("movie3.html", movies=movies, keyword=keyword, error=error)
+
+
+@app.route("/searchQ", methods=["POST", "GET"])
+def searchQ():
+    return movie3()
+
+
+@app.route("/check_update")
+def check_update():
+    url = "http://www.atmovies.com.tw/movie/next/"
+    try:
+        # 發送請求
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
+        Data = requests.get(url, headers=headers)
+        Data.encoding = "utf-8"
+        sp = BeautifulSoup(Data.text, "html.parser")
+
+        # 尋找包含更新日期的 div (通常是 class="smaller09")
+        update_div = sp.find("div", class_="smaller09")
+
+        if update_div:
+            update_text = update_div.text.strip()
+            # 這裡 update_text 會像是 "最後更新日期：2024/05/20"
         else:
-            movies = docs
+            update_text = "找不到更新日期資訊"
 
-        return render_template(
-            "movie3.html",
-            movies=movies,
-            keyword=keyword,
-            error=None,
-        )
-    except Exception as exc:
-        return render_template(
-            "movie3.html",
-            movies=[],
-            keyword=keyword,
-            error=f"查詢電影資料失敗：{exc}",
-        )
+    except Exception as e:
+        update_text = f"抓取失敗，錯誤原因：{e}"
+
+    # 建立回傳的網頁內容
+    html = f"""
+    <html>
+        <head><title>網頁更新狀態</title></head>
+        <body>
+            <h1>開眼電影網 更新狀態</h1>
+            <p style="font-size: 20px; color: blue;">{update_text}</p>
+            <hr>
+            <a href="/">回到首頁</a>
+        </body>
+    </html>
+    """
+    return html
+
+
+@app.route("/road", methods=["GET", "POST"])
+def road():
+    if request.method == "POST":
+        road_name = request.form.get("road_name")
+        try:
+            result = search_accident_by_road(road_name)
+            if isinstance(result, dict) and result.get("error"):
+                return render_template("road.html", roads=[], error=result["error"])
+            return render_template("road.html", roads=result, error=None)
+        except Exception as e:
+            return render_template("road.html", roads=[], error=f"查詢失敗：{e}")
+    else:
+        return render_template("road.html")
 
 
 @app.route("/weather", methods=["GET", "POST"])
 def weather():
-    result = None
-    city = ""
-    error = None
-
     if request.method == "POST":
-        city = request.form.get("city", "").strip()
-        if not city:
-            error = "請輸入縣市名稱"
-        else:
+        city = request.form.get("city")
+        try:
             result = get_weather(city)
-            if "error" in result and result["error"]:
-                error = result["error"]
-
-    return render_template("weather.html", result=result, city=city, error=error)
-
-
-@app.route("/road")
-def road():
-    roads = get_taichung_accident_roads(10)
-    error = None
-
-    if isinstance(roads, dict) and "error" in roads:
-        error = roads["error"]
-        roads = []
-
-    return render_template("road.html", roads=roads, error=error)
+            return render_template(
+                "weather.html",
+                result=result,
+                city=city,
+                error=result.get("error") if isinstance(result, dict) else None,
+            )
+        except Exception as e:
+            return render_template("weather.html", result=None, city=city, error=str(e))
+    else:
+        return render_template("weather.html")
 
 
 @app.route("/rate")
 def rate():
-    if db is None:
-        return "尚未設定 Firestore 連線，無法存入電影資料。"
     try:
-        count, lastUpdate = fetch_movies_with_rating()
-        return f"已爬蟲 {count} 部電影及存檔完畢，網站最近更新日期為：{lastUpdate}"
+        helper = _load_rate_helper()
+        count, last_update = helper.fetch_movies_with_rating()
+        return render_template_string(
+            """
+            <html lang="zh-TW">
+              <head><meta charset="UTF-8"><title>本週新片進DB</title></head>
+              <body>
+                <h1>本週新片進DB</h1>
+                <p>已同步 {{ count }} 筆資料。</p>
+                <p>更新時間：{{ last_update }}</p>
+                <p><a href="/">回到首頁</a></p>
+              </body>
+            </html>
+            """,
+            count=count,
+            last_update=last_update,
+        )
     except Exception as e:
-        return f"爬蟲電影資料失敗：{e}"
+        return render_template_string(
+            """
+            <html lang="zh-TW">
+              <head><meta charset="UTF-8"><title>本週新片進DB</title></head>
+              <body>
+                <h1>本週新片進DB</h1>
+                <p>同步失敗：{{ error }}</p>
+                <p><a href="/">回到首頁</a></p>
+              </body>
+            </html>
+            """,
+            error=str(e),
+        )
 
 
-def initialize_movies_data():
-    """系統啟動時，爬蟲一次電影資料"""
-    if db is None:
-        print("未設定 Firestore 連線，跳過電影資料初始化")
-        return
-    try:
-        print("系統啟動，正在爬蟲電影含分級資訊...")
-        count, lastUpdate = fetch_movies_with_rating()
-        print(f"初始化完成：共爬蟲 {count} 部電影，更新時間 {lastUpdate}")
-    except Exception as e:
-        print(f"初始化電影資料失敗：{e}")
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    # build a request object
+    req = request.get_json(force=True)
+    # fetch queryResult from json
+    action = req.get("queryResult").get("action")
+    msg = req.get("queryResult").get("queryText")
+    info = "動作：" + action + "； 查詢內容：" + msg
+    return make_response(jsonify({"fulfillmentText": info}))
+
+
+@app.route("/webhook2", methods=["POST"])
+def webhook2():
+    # build a request object
+    req = request.get_json(force=True)
+    # fetch queryResult from json
+    action = req.get("queryResult").get("action")
+    # msg =  req.get("queryResult").get("queryText")
+    # info = "動作：" + action + "； 查詢內容：" + msg
+    info = "目前沒有可回覆的內容"
+    if action == "rateChoice":
+        rate = req.get("queryResult").get("parameters").get("rate")
+        info = "您選擇的電影分級是：" + rate
+    return make_response(jsonify({"fulfillmentText": info}))
+
+
+@app.route("/webhook3", methods=["POST"])
+def webhook3():
+    # build a request object
+    req = request.get_json(force=True)
+    # fetch queryResult from json
+    action = req.get("queryResult").get("action")
+    # msg =  req.get("queryResult").get("queryText")
+    # info = "動作：" + action + "； 查詢內容：" + msg
+    info = "目前沒有可回覆的內容"
+    if action == "rateChoice":
+        rate = req.get("queryResult").get("parameters").get("rate")
+        info = (
+            "我是吳岱威開發的電影聊天機器人,您選擇的電影分級是："
+            + rate
+            + "，相關電影：\n"
+        )
+        collection_ref = _get_firestore_collection("電影含分級")
+        docs = collection_ref.get()
+        result = ""
+        for doc in docs:
+            data = doc.to_dict()
+            if rate in data["rate"]:
+                result += "片名：" + data["title"] + "\n"
+                result += "介紹：" + data["hyperlink"] + "\n\n"
+        info += result
+    return make_response(jsonify({"fulfillmentText": info}))
+
+
+@app.route("/webhook4", methods=["POST"])
+def webhook4():
+    req = request.get_json(force=True)
+    action = req["queryResult"]["action"]
+    info = "目前沒有可回覆的內容"
+    if action == "rateChoice":
+        rate = req.get("queryResult").get("parameters").get("rate")
+        info = (
+            "我是吳岱威開發的電影聊天機器人,您選擇的電影分級是："
+            + rate
+            + "，相關電影：\n"
+        )
+        collection_ref = _get_firestore_collection("電影含分級")
+        docs = collection_ref.get()
+        result = ""
+        for doc in docs:
+            data = doc.to_dict()
+            if rate in data["rate"]:
+                result += "片名：" + data["title"] + "\n"
+                result += "介紹：" + data["hyperlink"] + "\n\n"
+        info += result
+    elif action == "MovieDetail":
+        question = req.get("queryResult").get("parameters").get("filmq")
+        keyword = req.get("queryResult").get("parameters").get("any")
+        info = (
+            "我是吳岱威開發的電影聊天機器人，您要查詢電影的"
+            + question
+            + "，關鍵字是："
+            + keyword
+            + "\n\n"
+        )
+
+        if question == "片名":
+            collection_ref = _get_firestore_collection("電影含分級")
+            docs = collection_ref.get()
+            found = False
+            info = ""
+            for doc in docs:
+                movie_data = doc.to_dict()
+                if keyword in movie_data["title"]:
+                    found = True
+                    info += "片名：" + movie_data["title"] + "\n"
+                    info += "海報：" + movie_data["picture"] + "\n"
+                    info += "影片介紹：" + movie_data["hyperlink"] + "\n"
+                    info += "片長：" + str(movie_data["showLength"]) + " 分鐘\n"
+                    info += "分級：" + movie_data["rate"] + "\n"
+                    info += "上映日期：" + movie_data["showDate"] + "\n\n"
+            if not found:
+                info += "很抱歉，目前無符合這個關鍵字的相關電影喔"
+
+    return make_response(jsonify({"fulfillmentText": info}))
 
 
 if __name__ == "__main__":
-    initialize_movies_data()
     app.run()
