@@ -41,6 +41,8 @@ if cred is not None and not firebase_admin._apps:
 
 app = Flask(__name__)
 
+MOVIE_RATING_COLLECTION = "本週新片含分級"
+
 
 def _load_rate_helper():
     module_path = Path(__file__).resolve().parent / "rate" / "08_rate.py"
@@ -56,6 +58,30 @@ def _load_rate_helper():
 def _get_firestore_collection(collection_name):
     db = firestore.client()
     return db.collection(collection_name)
+
+
+def _build_rate_movie_reply(rate, include_introduce=False):
+    collection_ref = _get_firestore_collection(MOVIE_RATING_COLLECTION)
+    docs = collection_ref.get()
+    result = ""
+
+    for doc in docs:
+        data = doc.to_dict() or {}
+        movie_rate = str(data.get("rate", ""))
+        if rate not in movie_rate:
+            continue
+
+        result += "片名：" + str(data.get("title", "")) + "\n"
+        if include_introduce:
+            result += "影片介紹：" + str(data.get("introduce", "")) + "\n"
+        else:
+            result += "介紹：" + str(data.get("hyperlink", "")) + "\n"
+        result += "\n"
+
+    if result == "":
+        return "目前沒有查到符合此分級的相關電影。\n"
+
+    return result
 
 
 @app.route("/")
@@ -538,15 +564,7 @@ def webhook3():
             + rate
             + "，相關電影：\n"
         )
-        collection_ref = _get_firestore_collection("本週新片含分級")
-        docs = collection_ref.get()
-        result = ""
-        for doc in docs:
-            data = doc.to_dict()
-            if rate in data["rate"]:
-                result += "片名：" + data["title"] + "\n"
-                result += "介紹：" + data["hyperlink"] + "\n\n"
-        info += result
+        info += _build_rate_movie_reply(rate)
     return make_response(jsonify({"fulfillmentText": info}))
 
 
@@ -562,15 +580,7 @@ def webhook4():
             + rate
             + "，相關電影：\n"
         )
-        collection_ref = _get_firestore_collection("本週新片含分級 ")
-        docs = collection_ref.get()
-        result = ""
-        for doc in docs:
-            data = doc.to_dict()
-            if rate in data["rate"]:
-                result += "片名：" + data["title"] + "\n"
-                result += "介紹：" + data["introduce"] + "\n\n"
-        info += result
+        info += _build_rate_movie_reply(rate, include_introduce=True)
     elif action == "MovieDetail":
         question = req.get("queryResult").get("parameters").get("filmq")
         keyword = req.get("queryResult").get("parameters").get("any")
@@ -583,7 +593,7 @@ def webhook4():
         )
 
         if question == "片名":
-            collection_ref = _get_firestore_collection("本週新片含分級 ")
+            collection_ref = _get_firestore_collection(MOVIE_RATING_COLLECTION)
             docs = collection_ref.get()
             found = False
             info = ""
