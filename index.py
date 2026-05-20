@@ -429,7 +429,7 @@ def weather():
 
 @app.route("/rate")
 def rate():
-    #本週新片
+    # 本週新片
     url = "https://www.atmovies.com.tw/movie/new/"
     Data = requests.get(url)
     Data.encoding = "utf-8"
@@ -438,7 +438,7 @@ def rate():
     print(lastUpdate)
     print()
 
-    result=sp.select(".filmList")
+    result = sp.select(".filmList")
 
     for x in result:
         title = x.find("a").text
@@ -446,7 +446,13 @@ def rate():
 
         movie_id = x.find("a").get("href").replace("/", "").replace("movie", "")
         hyperlink = "http://www.atmovies.com.tw/movie/" + movie_id
-        picture = "https://www.atmovies.com.tw/photo101/" + movie_id + "/pm_" + movie_id + ".jpg"
+        picture = (
+            "https://www.atmovies.com.tw/photo101/"
+            + movie_id
+            + "/pm_"
+            + movie_id
+            + ".jpg"
+        )
 
         r = x.find(class_="runtime").find("img")
         rate = ""
@@ -467,11 +473,11 @@ def rate():
 
         t1 = t.find("片長")
         t2 = t.find("分")
-        showLength = t[t1+3:t2]
+        showLength = t[t1 + 3 : t2]
 
         t1 = t.find("上映日期")
         t2 = t.find("上映廳數")
-        showDate = t[t1+5:t2-8]
+        showDate = t[t1 + 5 : t2 - 8]
 
         doc = {
             "title": title,
@@ -481,13 +487,14 @@ def rate():
             "showDate": showDate,
             "showLength": int(showLength),
             "rate": rate,
-            "lastUpdate": lastUpdate
+            "lastUpdate": lastUpdate,
         }
 
         db = firestore.client()
         doc_ref = db.collection("本週新片含分級").document(movie_id)
         doc_ref.set(doc)
     return "本週新片已爬蟲及存檔完畢，網站最近更新日期為：" + lastUpdate
+
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -531,7 +538,7 @@ def webhook3():
             + rate
             + "，相關電影：\n"
         )
-        collection_ref = _get_firestore_collection("電影含分級")
+        collection_ref = _get_firestore_collection("本週新片含分級")
         docs = collection_ref.get()
         result = ""
         for doc in docs:
@@ -562,7 +569,7 @@ def webhook4():
             data = doc.to_dict()
             if rate in data["rate"]:
                 result += "片名：" + data["title"] + "\n"
-                result += "介紹：" + data["hyperlink"] + "\n\n"
+                result += "介紹：" + data["introduce"] + "\n\n"
         info += result
     elif action == "MovieDetail":
         question = req.get("queryResult").get("parameters").get("filmq")
@@ -585,8 +592,7 @@ def webhook4():
                 if keyword in movie_data["title"]:
                     found = True
                     info += "片名：" + movie_data["title"] + "\n"
-                    info += "海報：" + movie_data["picture"] + "\n"
-                    info += "影片介紹：" + movie_data["hyperlink"] + "\n"
+                    info += "影片介紹：" + movie_data["introduce"] + "\n"
                     info += "片長：" + str(movie_data["showLength"]) + " 分鐘\n"
                     info += "分級：" + movie_data["rate"] + "\n"
                     info += "上映日期：" + movie_data["showDate"] + "\n\n"

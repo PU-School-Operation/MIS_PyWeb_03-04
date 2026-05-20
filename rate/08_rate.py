@@ -20,7 +20,7 @@ def fetch_movies_with_rating():
         return 0, datetime.now().strftime("%Y/%m/%d %H:%M:%S")
 
     lastUpdate = datetime.now().strftime("%Y/%m/%d %H:%M:%S")
-    print(f"電影含分級爬蟲更新時間：{lastUpdate}")
+    print(f"本週新片含分級爬蟲更新時間：{lastUpdate}")
 
     # 新網站結構使用 c-item-card
     result = sp.select(".c-item-card")
@@ -94,7 +94,7 @@ def fetch_movies_with_rating():
             }
 
             db = firestore.client()
-            doc_ref = db.collection("電影含分級").document(movie_id)
+            doc_ref = db.collection("本週新片含分級").document(movie_id)
             doc_ref.set(doc)
             count += 1
             print(f"[成功] {title} ({showDate})")
