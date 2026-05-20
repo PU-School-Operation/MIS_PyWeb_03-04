@@ -429,39 +429,65 @@ def weather():
 
 @app.route("/rate")
 def rate():
-    try:
-        helper = _load_rate_helper()
-        count, last_update = helper.fetch_movies_with_rating()
-        return render_template_string(
-            """
-            <html lang="zh-TW">
-              <head><meta charset="UTF-8"><title>本週新片進DB</title></head>
-              <body>
-                <h1>本週新片進DB</h1>
-                <p>已同步 {{ count }} 筆資料。</p>
-                <p>更新時間：{{ last_update }}</p>
-                <p><a href="/">回到首頁</a></p>
-              </body>
-            </html>
-            """,
-            count=count,
-            last_update=last_update,
-        )
-    except Exception as e:
-        return render_template_string(
-            """
-            <html lang="zh-TW">
-              <head><meta charset="UTF-8"><title>本週新片進DB</title></head>
-              <body>
-                <h1>本週新片進DB</h1>
-                <p>同步失敗：{{ error }}</p>
-                <p><a href="/">回到首頁</a></p>
-              </body>
-            </html>
-            """,
-            error=str(e),
-        )
+    #本週新片
+    url = "https://www.atmovies.com.tw/movie/new/"
+    Data = requests.get(url)
+    Data.encoding = "utf-8"
+    sp = BeautifulSoup(Data.text, "html.parser")
+    lastUpdate = sp.find(class_="smaller09").text[5:]
+    print(lastUpdate)
+    print()
 
+    result=sp.select(".filmList")
+
+    for x in result:
+        title = x.find("a").text
+        introduce = x.find("p").text
+
+        movie_id = x.find("a").get("href").replace("/", "").replace("movie", "")
+        hyperlink = "http://www.atmovies.com.tw/movie/" + movie_id
+        picture = "https://www.atmovies.com.tw/photo101/" + movie_id + "/pm_" + movie_id + ".jpg"
+
+        r = x.find(class_="runtime").find("img")
+        rate = ""
+        if r != None:
+            rr = r.get("src").replace("/images/cer_", "").replace(".gif", "")
+            if rr == "G":
+                rate = "普遍級"
+            elif rr == "P":
+                rate = "保護級"
+            elif rr == "F2":
+                rate = "輔12級"
+            elif rr == "F5":
+                rate = "輔15級"
+            else:
+                rate = "限制級"
+
+        t = x.find(class_="runtime").text
+
+        t1 = t.find("片長")
+        t2 = t.find("分")
+        showLength = t[t1+3:t2]
+
+        t1 = t.find("上映日期")
+        t2 = t.find("上映廳數")
+        showDate = t[t1+5:t2-8]
+
+        doc = {
+            "title": title,
+            "introduce": introduce,
+            "picture": picture,
+            "hyperlink": hyperlink,
+            "showDate": showDate,
+            "showLength": int(showLength),
+            "rate": rate,
+            "lastUpdate": lastUpdate
+        }
+
+        db = firestore.client()
+        doc_ref = db.collection("本週新片含分級").document(movie_id)
+        doc_ref.set(doc)
+    return "本週新片已爬蟲及存檔完畢，網站最近更新日期為：" + lastUpdate
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -529,7 +555,7 @@ def webhook4():
             + rate
             + "，相關電影：\n"
         )
-        collection_ref = _get_firestore_collection("電影含分級")
+        collection_ref = _get_firestore_collection("本週新片含分級 ")
         docs = collection_ref.get()
         result = ""
         for doc in docs:
@@ -550,7 +576,7 @@ def webhook4():
         )
 
         if question == "片名":
-            collection_ref = _get_firestore_collection("電影含分級")
+            collection_ref = _get_firestore_collection("本週新片含分級 ")
             docs = collection_ref.get()
             found = False
             info = ""
