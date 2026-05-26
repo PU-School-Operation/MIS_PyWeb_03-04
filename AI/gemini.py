@@ -36,7 +36,7 @@ def _get_gemini_model():
     return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
-def ai_config(token=4960):
+def ai_config(token=600):
     return types.GenerateContentConfig(max_output_tokens=token)
 
 
@@ -52,7 +52,7 @@ def create_client():
     return genai.Client(api_key=api_key)
 
 
-def ask_gemini(question, token=1024, model=None):
+def ask_gemini(question, token=600, model=None):
     client = create_client()
     response = client.models.generate_content(
         model=model or _get_gemini_model(),
@@ -63,11 +63,11 @@ def ask_gemini(question, token=1024, model=None):
 
 
 def main():
-    response1 = ask_gemini("靜宜資管有什麼特色", token=4960)
+    response1 = ask_gemini("靜宜資管有什麼特色", token=600)
     print("--- 第一輪回應 ---")
     print(response1)
 
-    response2 = ask_gemini("可否提供該科系相關的笑話", token=4960)
+    response2 = ask_gemini("可否提供該科系相關的笑話", token=600)
     print("\n--- 第二輪回應 ---")
     print(response2)
 

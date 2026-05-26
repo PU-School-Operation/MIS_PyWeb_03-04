@@ -142,6 +142,252 @@ def _build_rate_movie_reply(rate, include_introduce=False):
     return result
 
 
+def _render_ai_page(question, answer=None, error=None):
+    title = "AI 問答"
+    question = question or ""
+    answer = answer or ""
+    error = error or ""
+
+    return render_template_string(
+        """
+        <!doctype html>
+        <html lang="zh-TW">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>{{ title }}</title>
+                <style>
+                    :root {
+                        color-scheme: light;
+                        --bg-a: #0f172a;
+                        --bg-b: #1d4ed8;
+                        --bg-c: #06b6d4;
+                        --card: rgba(255, 255, 255, 0.94);
+                        --text: #0f172a;
+                        --muted: #64748b;
+                        --border: rgba(148, 163, 184, 0.24);
+                        --shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
+                    }
+
+                    * {
+                        box-sizing: border-box;
+                    }
+
+                    body {
+                        margin: 0;
+                        min-height: 100vh;
+                        font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+                        color: var(--text);
+                        background:
+                            radial-gradient(circle at top left, rgba(255, 255, 255, 0.18), transparent 32%),
+                            radial-gradient(circle at bottom right, rgba(255, 255, 255, 0.12), transparent 28%),
+                            linear-gradient(135deg, var(--bg-a), var(--bg-b) 52%, var(--bg-c));
+                        display: grid;
+                        place-items: center;
+                        padding: 32px 16px;
+                    }
+
+                    .page {
+                        width: min(100%, 920px);
+                    }
+
+                    .hero {
+                        color: white;
+                        margin-bottom: 18px;
+                    }
+
+                    .eyebrow {
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                        padding: 8px 12px;
+                        border-radius: 999px;
+                        background: rgba(255, 255, 255, 0.12);
+                        border: 1px solid rgba(255, 255, 255, 0.16);
+                        backdrop-filter: blur(8px);
+                        font-size: 14px;
+                        letter-spacing: 0.06em;
+                        text-transform: uppercase;
+                    }
+
+                    h1 {
+                        margin: 14px 0 10px;
+                        font-size: clamp(2rem, 4vw, 3.4rem);
+                        line-height: 1.05;
+                    }
+
+                    .subtitle {
+                        margin: 0;
+                        max-width: 60ch;
+                        color: rgba(255, 255, 255, 0.88);
+                        font-size: 1.02rem;
+                        line-height: 1.7;
+                    }
+
+                    .panel {
+                        display: grid;
+                        grid-template-columns: 1.2fr 1fr;
+                        gap: 18px;
+                    }
+
+                    .card {
+                        background: var(--card);
+                        border: 1px solid var(--border);
+                        border-radius: 24px;
+                        box-shadow: var(--shadow);
+                        overflow: hidden;
+                        backdrop-filter: blur(12px);
+                    }
+
+                    .card-body {
+                        padding: 22px;
+                    }
+
+                    label {
+                        display: block;
+                        margin-bottom: 10px;
+                        font-weight: 700;
+                        color: #111827;
+                    }
+
+                    textarea {
+                        width: 100%;
+                        min-height: 160px;
+                        resize: vertical;
+                        border-radius: 18px;
+                        border: 1px solid rgba(148, 163, 184, 0.4);
+                        padding: 16px 18px;
+                        font: inherit;
+                        line-height: 1.65;
+                        color: var(--text);
+                        background: #f8fafc;
+                        outline: none;
+                    }
+
+                    textarea:focus {
+                        border-color: #2563eb;
+                        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+                        background: white;
+                    }
+
+                    .actions {
+                        display: flex;
+                        gap: 12px;
+                        margin-top: 14px;
+                        flex-wrap: wrap;
+                    }
+
+                    button, .link-btn {
+                        border: 0;
+                        border-radius: 14px;
+                        padding: 12px 18px;
+                        font: inherit;
+                        font-weight: 700;
+                        cursor: pointer;
+                        text-decoration: none;
+                        transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+                    }
+
+                    button {
+                        color: white;
+                        background: linear-gradient(135deg, #2563eb, #06b6d4);
+                        box-shadow: 0 14px 32px rgba(37, 99, 235, 0.35);
+                    }
+
+                    .link-btn {
+                        color: #0f172a;
+                        background: rgba(15, 23, 42, 0.06);
+                    }
+
+                    button:hover, .link-btn:hover {
+                        transform: translateY(-1px);
+                    }
+
+                    .result-title {
+                        margin: 0 0 12px;
+                        font-size: 1rem;
+                        color: #111827;
+                    }
+
+                    .result-box {
+                        min-height: 220px;
+                        border-radius: 20px;
+                        padding: 18px 18px 20px;
+                        background: linear-gradient(180deg, #ffffff, #f8fafc);
+                        border: 1px solid rgba(148, 163, 184, 0.26);
+                        white-space: pre-wrap;
+                        line-height: 1.8;
+                        overflow-wrap: anywhere;
+                    }
+
+                    .hint {
+                        margin-top: 10px;
+                        color: var(--muted);
+                        font-size: 0.92rem;
+                        line-height: 1.7;
+                    }
+
+                    .error {
+                        margin-top: 14px;
+                        padding: 12px 14px;
+                        border-radius: 14px;
+                        background: #fef2f2;
+                        color: #b91c1c;
+                        border: 1px solid rgba(239, 68, 68, 0.18);
+                        line-height: 1.6;
+                    }
+
+                    @media (max-width: 860px) {
+                        .panel {
+                            grid-template-columns: 1fr;
+                        }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="page">
+                    <div class="hero">
+                        <div class="eyebrow">AI Assistant</div>
+                        <h1>{{ title }}</h1>
+                        <p class="subtitle">輸入你的問題後送出，系統會透過 Gemini 回答；如果是 Dialogflow webhook，也會用同一套 AI 能力回應使用者。</p>
+                    </div>
+
+                    <div class="panel">
+                        <section class="card">
+                            <div class="card-body">
+                                <form method="get" action="/AI">
+                                    <label for="q">你的問題</label>
+                                    <textarea id="q" name="q" placeholder="請輸入你的問題">{{ question }}</textarea>
+                                    <div class="actions">
+                                        <button type="submit">送出問題</button>
+                                        <a class="link-btn" href="/">回到首頁</a>
+                                    </div>
+                                </form>
+                                {% if error %}
+                                <div class="error">{{ error }}</div>
+                                {% endif %}
+                            </div>
+                        </section>
+
+                        <section class="card">
+                            <div class="card-body">
+                                <p class="result-title">AI 回答</p>
+                                <div class="result-box">{{ answer if answer else '尚未輸入問題，這裡會顯示 AI 回答。' }}</div>
+                                <div class="hint">提示：你也可以直接把這個頁面當成 AI 測試介面，先確認 Gemini 與 .env 設定是否正常。</div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </body>
+        </html>
+        """,
+        title=title,
+        question=question,
+        answer=answer,
+        error=error,
+    )
+
+
 @app.route("/")
 def index():
     homepage = "<h1>吳岱威Python網頁</h1>"
@@ -681,24 +927,7 @@ def AI():
         question = "我想查詢靜宜大學資管系的評價？"
 
     if _gemini_client is None:
-        return render_template_string(
-            """
-                <html lang="zh-TW">
-                    <head><meta charset="UTF-8"><title>AI 問答</title></head>
-                    <body>
-                        <h1>AI 問答</h1>
-                        <form method="get" action="/AI">
-                            <textarea name="q" rows="4" cols="60" placeholder="請輸入你的問題">{{ question }}</textarea><br><br>
-                            <button type="submit">送出</button>
-                        </form>
-                        <p>{{ error }}</p>
-                        <p><a href="/">回到首頁</a></p>
-                    </body>
-                </html>
-            """,
-            question=question,
-            error=_gemini_client_error,
-        )
+        return _render_ai_page(question, error=_gemini_client_error)
 
     try:
         response = _gemini_client.models.generate_content(
@@ -709,37 +938,15 @@ def AI():
     except Exception as exc:
         answer = f"AI 查詢失敗：{exc}"
 
-    return render_template_string(
-        """
-            <html lang="zh-TW">
-                <head><meta charset="UTF-8"><title>AI 問答</title></head>
-                <body>
-                    <h1>AI 問答</h1>
-                    <form method="get" action="/AI">
-                        <textarea name="q" rows="4" cols="60" placeholder="請輸入你的問題">{{ question }}</textarea><br><br>
-                        <button type="submit">送出</button>
-                    </form>
-                    <h2>回答</h2>
-                    <pre style="white-space: pre-wrap;">{{ answer }}</pre>
-                    <p><a href="/">回到首頁</a></p>
-                </body>
-            </html>
-        """,
-        question=question,
-        answer=answer,
-    )
+    return _render_ai_page(question, answer=answer)
 
 
 @app.route("/webhook7", methods=["POST"])
 def webhook7():
-    # build a request object
     req = request.get_json(force=True) or {}
-    # fetch queryResult from json
     query_result = req.get("queryResult") or {}
-    action = query_result.get("action")
+    action = query_result.get("action", "")
     query_text = query_result.get("queryText", "").strip()
-    #msg =  req.get("queryResult").get("queryText")
-    #info = "動作：" + action + "； 查詢內容：" + msg
     info = "目前沒有可回覆的內容"
 
     if action == "rateChoice":
@@ -750,12 +957,12 @@ def webhook7():
             + "，相關電影：\n"
         )
         info += _build_rate_movie_reply(rate, include_introduce=True)
+
     elif action == "input.unknown":
-        token = int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1024"))
         try:
             info = ask_gemini(
                 query_text or "請用繁體中文簡短回答使用者問題。",
-                token=token,
+                token=int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "500")),
                 model=_get_gemini_model(),
             )
             if not info.strip():
