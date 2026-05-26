@@ -21,11 +21,50 @@ from firebase_admin import credentials, firestore
 from bug.opendata import search_accident_by_road
 from bug.spider import fetch_upcoming_movies
 from bug.weather import get_weather
+from AI.gemini import ask_gemini
+
+from google import genai
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def _load_local_env_file(env_path):
+    if not env_path.exists():
+        return
+
+    with env_path.open("r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_local_env_file(BASE_DIR / ".env")
+
+
+def _get_gemini_api_key():
+    return (
+        os.getenv("GOOGLE_API_KEY")
+        or os.getenv("google_API_key")
+        or os.getenv("google_api_key")
+    )
+
+
+def _get_gemini_model():
+    return os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 # 判斷是在 Vercel 還是本地
-if os.path.exists("serviceAccountKey.json"):
+local_service_account = BASE_DIR / "serviceAccountKey.json"
+if local_service_account.exists():
     # 本地環境：讀取檔案
-    cred = credentials.Certificate("serviceAccountKey.json")
+    cred = credentials.Certificate(str(local_service_account))
 else:
     # 雲端環境：從環境變數讀取 JSON 字串
     firebase_config = os.getenv("FIREBASE_CONFIG")
@@ -40,6 +79,18 @@ if cred is not None and not firebase_admin._apps:
 
 
 app = Flask(__name__)
+
+_gemini_client = None
+_gemini_client_error = None
+
+api_key = _get_gemini_api_key()
+if api_key:
+    try:
+        _gemini_client = genai.Client(api_key=api_key)
+    except Exception as exc:
+        _gemini_client_error = str(exc)
+else:
+    _gemini_client_error = "找不到 Gemini API Key，請確認專案根目錄的 .env 是否設定 GOOGLE_API_KEY"
 
 MOVIE_RATING_COLLECTION = "本週新片含分級"
 
@@ -56,13 +107,20 @@ def _load_rate_helper():
 
 
 def _get_firestore_collection(collection_name):
+    if not firebase_admin._apps:
+        raise RuntimeError("Firestore 尚未初始化，請先設定 Firebase 憑證")
+
     db = firestore.client()
     return db.collection(collection_name)
 
 
 def _build_rate_movie_reply(rate, include_introduce=False):
-    collection_ref = _get_firestore_collection(MOVIE_RATING_COLLECTION)
-    docs = collection_ref.get()
+    try:
+        collection_ref = _get_firestore_collection(MOVIE_RATING_COLLECTION)
+        docs = collection_ref.get()
+    except Exception as exc:
+        return f"目前無法讀取電影資料庫：{exc}\n"
+
     result = ""
 
     for doc in docs:
@@ -101,6 +159,7 @@ def index():
     homepage += "<br><a href=/road>查詢易肇事路口</a><br>"
     homepage += "<br><a href=/weather>查詢氣象預報</a><br>"
     homepage += "<br><a href=/rate>本週新片進DB</a><br>"
+    homepage += "<br><a href=/AI>AI 問答</a><br>"
 
     # 【修正】：修正 HTML 標籤拼字錯誤與增加必要空格
     homepage += '<script src="https://www.gstatic.com/dialogflow-console/fast/messenger/bootstrap.js?v=1"></script>'
@@ -455,71 +514,74 @@ def weather():
 
 @app.route("/rate")
 def rate():
-    # 本週新片
-    url = "https://www.atmovies.com.tw/movie/new/"
-    Data = requests.get(url)
-    Data.encoding = "utf-8"
-    sp = BeautifulSoup(Data.text, "html.parser")
-    lastUpdate = sp.find(class_="smaller09").text[5:]
-    print(lastUpdate)
-    print()
+    try:
+        # 本週新片
+        url = "https://www.atmovies.com.tw/movie/new/"
+        Data = requests.get(url)
+        Data.encoding = "utf-8"
+        sp = BeautifulSoup(Data.text, "html.parser")
+        lastUpdate = sp.find(class_="smaller09").text[5:]
+        print(lastUpdate)
+        print()
 
-    result = sp.select(".filmList")
+        result = sp.select(".filmList")
 
-    for x in result:
-        title = x.find("a").text
-        introduce = x.find("p").text
+        for x in result:
+            title = x.find("a").text
+            introduce = x.find("p").text
 
-        movie_id = x.find("a").get("href").replace("/", "").replace("movie", "")
-        hyperlink = "http://www.atmovies.com.tw/movie/" + movie_id
-        picture = (
-            "https://www.atmovies.com.tw/photo101/"
-            + movie_id
-            + "/pm_"
-            + movie_id
-            + ".jpg"
-        )
+            movie_id = x.find("a").get("href").replace("/", "").replace("movie", "")
+            hyperlink = "http://www.atmovies.com.tw/movie/" + movie_id
+            picture = (
+                "https://www.atmovies.com.tw/photo101/"
+                + movie_id
+                + "/pm_"
+                + movie_id
+                + ".jpg"
+            )
 
-        r = x.find(class_="runtime").find("img")
-        rate = ""
-        if r != None:
-            rr = r.get("src").replace("/images/cer_", "").replace(".gif", "")
-            if rr == "G":
-                rate = "普遍級"
-            elif rr == "P":
-                rate = "保護級"
-            elif rr == "F2":
-                rate = "輔12級"
-            elif rr == "F5":
-                rate = "輔15級"
-            else:
-                rate = "限制級"
+            r = x.find(class_="runtime").find("img")
+            rate = ""
+            if r != None:
+                rr = r.get("src").replace("/images/cer_", "").replace(".gif", "")
+                if rr == "G":
+                    rate = "普遍級"
+                elif rr == "P":
+                    rate = "保護級"
+                elif rr == "F2":
+                    rate = "輔12級"
+                elif rr == "F5":
+                    rate = "輔15級"
+                else:
+                    rate = "限制級"
 
-        t = x.find(class_="runtime").text
+            t = x.find(class_="runtime").text
 
-        t1 = t.find("片長")
-        t2 = t.find("分")
-        showLength = t[t1 + 3 : t2]
+            t1 = t.find("片長")
+            t2 = t.find("分")
+            showLength = t[t1 + 3 : t2]
 
-        t1 = t.find("上映日期")
-        t2 = t.find("上映廳數")
-        showDate = t[t1 + 5 : t2 - 8]
+            t1 = t.find("上映日期")
+            t2 = t.find("上映廳數")
+            showDate = t[t1 + 5 : t2 - 8]
 
-        doc = {
-            "title": title,
-            "introduce": introduce,
-            "picture": picture,
-            "hyperlink": hyperlink,
-            "showDate": showDate,
-            "showLength": int(showLength),
-            "rate": rate,
-            "lastUpdate": lastUpdate,
-        }
+            doc = {
+                "title": title,
+                "introduce": introduce,
+                "picture": picture,
+                "hyperlink": hyperlink,
+                "showDate": showDate,
+                "showLength": int(showLength),
+                "rate": rate,
+                "lastUpdate": lastUpdate,
+            }
 
-        db = firestore.client()
-        doc_ref = db.collection("本週新片含分級").document(movie_id)
-        doc_ref.set(doc)
-    return "本週新片已爬蟲及存檔完畢，網站最近更新日期為：" + lastUpdate
+            db = firestore.client()
+            doc_ref = db.collection("本週新片含分級").document(movie_id)
+            doc_ref.set(doc)
+        return "本週新片已爬蟲及存檔完畢，網站最近更新日期為：" + lastUpdate
+    except Exception as exc:
+        return f"本週新片處理失敗：{exc}"
 
 
 @app.route("/webhook", methods=["POST"])
@@ -608,6 +670,98 @@ def webhook4():
                     info += "上映日期：" + movie_data["showDate"] + "\n\n"
             if not found:
                 info += "很抱歉，目前無符合這個關鍵字的相關電影喔"
+
+    return make_response(jsonify({"fulfillmentText": info}))
+
+
+@app.route("/AI")
+def AI():
+    question = request.values.get("q", "").strip()
+    if not question:
+        question = "我想查詢靜宜大學資管系的評價？"
+
+    if _gemini_client is None:
+        return render_template_string(
+            """
+                <html lang="zh-TW">
+                    <head><meta charset="UTF-8"><title>AI 問答</title></head>
+                    <body>
+                        <h1>AI 問答</h1>
+                        <form method="get" action="/AI">
+                            <textarea name="q" rows="4" cols="60" placeholder="請輸入你的問題">{{ question }}</textarea><br><br>
+                            <button type="submit">送出</button>
+                        </form>
+                        <p>{{ error }}</p>
+                        <p><a href="/">回到首頁</a></p>
+                    </body>
+                </html>
+            """,
+            question=question,
+            error=_gemini_client_error,
+        )
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model=_get_gemini_model(),
+            contents=question,
+        )
+        answer = response.text or "模型沒有回傳文字內容。"
+    except Exception as exc:
+        answer = f"AI 查詢失敗：{exc}"
+
+    return render_template_string(
+        """
+            <html lang="zh-TW">
+                <head><meta charset="UTF-8"><title>AI 問答</title></head>
+                <body>
+                    <h1>AI 問答</h1>
+                    <form method="get" action="/AI">
+                        <textarea name="q" rows="4" cols="60" placeholder="請輸入你的問題">{{ question }}</textarea><br><br>
+                        <button type="submit">送出</button>
+                    </form>
+                    <h2>回答</h2>
+                    <pre style="white-space: pre-wrap;">{{ answer }}</pre>
+                    <p><a href="/">回到首頁</a></p>
+                </body>
+            </html>
+        """,
+        question=question,
+        answer=answer,
+    )
+
+
+@app.route("/webhook7", methods=["POST"])
+def webhook7():
+    # build a request object
+    req = request.get_json(force=True) or {}
+    # fetch queryResult from json
+    query_result = req.get("queryResult") or {}
+    action = query_result.get("action")
+    query_text = query_result.get("queryText", "").strip()
+    #msg =  req.get("queryResult").get("queryText")
+    #info = "動作：" + action + "； 查詢內容：" + msg
+    info = "目前沒有可回覆的內容"
+
+    if action == "rateChoice":
+        rate = query_result.get("parameters", {}).get("rate", "")
+        info = (
+            "我是吳岱威開發的電影聊天機器人,您選擇的電影分級是："
+            + rate
+            + "，相關電影：\n"
+        )
+        info += _build_rate_movie_reply(rate, include_introduce=True)
+    elif action == "input.unknown":
+        token = int(os.getenv("GEMINI_MAX_OUTPUT_TOKENS", "1024"))
+        try:
+            info = ask_gemini(
+                query_text or "請用繁體中文簡短回答使用者問題。",
+                token=token,
+                model=_get_gemini_model(),
+            )
+            if not info.strip():
+                info = "Gemini 沒有回傳文字內容。"
+        except Exception as exc:
+            info = f"AI 查詢失敗：{exc}"
 
     return make_response(jsonify({"fulfillmentText": info}))
 

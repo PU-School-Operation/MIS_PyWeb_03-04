@@ -1,5 +1,6 @@
 flask
 firebase-admin
 google-cloud-firestore
+google-genai
 bs4
 requests
